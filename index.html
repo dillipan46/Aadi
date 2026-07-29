@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Temple Budget Tracker</title>
+<style>
+    /* Background Image setup */
+    body { 
+        font-family: sans-serif; margin: 0; padding: 10px; height: 100vh; display: flex; flex-direction: column;
+        background-image: url('https://upload.wikimedia.org/wikipedia/commons/thumb/4/4f/Muthumariamman_2025.jpg/330px-Muthumariamman_2025.jpg');
+        background-size: cover; background-position: center; background-attachment: fixed;
+    }
+    .overlay { 
+        background: rgba(255, 255, 255, 0.6); padding: 15px; border-radius: 10px; 
+        flex: 1; display: flex; flex-direction: column; overflow: hidden; 
+    }
+    #searchBar { width: 100%; padding: 10px; margin-bottom: 10px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px; background: rgba(255,255,255,0.7); }
+    .table-container { flex: 1; overflow: auto; background: rgba(255, 255, 255, 0.4); border: 1px solid #ddd; position: relative; }
+    table { width: 100%; border-collapse: separate; border-spacing: 0; }
+    
+    /* Headers and cells made transparent */
+    thead th { position: sticky; top: 0; z-index: 10; background: rgba(242, 242, 242, 0.7); border-bottom: 2px solid #ddd; }
+    th:first-child, td:first-child { position: sticky; left: 0; z-index: 11; background: rgba(255, 255, 255, 0.7); border-right: 2px solid #ddd; width: 120px; min-width: 120px; }
+    
+    .col-fixed { width: 70px; min-width: 70px; }
+    .col-action { width: 40px; min-width: 40px; }
+    
+    th, td { padding: 8px; border: 1px solid #ddd; text-align: center; white-space: nowrap; background: rgba(255, 255, 255, 0.4); }
+    
+    input, select { width: 100%; padding: 5px; box-sizing: border-box; background: rgba(255, 255, 255, 0.5); border: 1px solid #ccc; }
+    .del-btn { background: none; border: none; cursor: pointer; font-size: 1.2em; }
+    #controlPanel { background: rgba(238, 238, 238, 0.7); padding: 10px; margin-top: 10px; border-radius: 5px; }
+    #summaryPanel { background: rgba(51, 51, 51, 0.8); color: white; padding: 15px; margin-top: 5px; border-radius: 5px; font-weight: bold; }
+</style>
+</head>
+<body>
+
+<div class="overlay">
+    <h2>வேம்பு முத்துமாரி<span id="syncStatus"></span></h2>
+    <input type="text" id="searchBar" placeholder="🔍 Search Particulars..." oninput="filterTable()">
+    <button onclick="addRow()">+ Add New Row</button>
+
+    <div class="table-container">
+        <table>
+            <thead>
+                <tr><th>Particulars</th><th class="col-fixed">Estimate</th><th class="col-fixed">Paid</th><th class="col-fixed">Bal</th><th class="col-fixed">Mode</th><th class="col-action">X</th></tr>
+            </thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+
+    <div id="controlPanel">
+        Manual In Hand Amount: <input type="number" id="manualInHand" value="0" oninput="updateSummary(); autoSync()">
+    </div>
+    <div id="summaryPanel"></div>
+</div>
+
+<script>
+const DB_URL = "https://kovil-22537-default-rtdb.firebaseio.com/budget_data.json";
+
+const initialData = [
+    ["Panthal", 40000], ["Katta Melam", 28000], ["Thaarai", 8000], ["Nathaswaram", 22500],
+    ["Gopal band", 25000], ["Sridhar Audio", 38600], ["Sripadham", 23000], ["Sandana Kaapu", 3000],
+    ["Pattrai tok", 0], ["Samayal", 5000], ["Thengai", 8000], ["Laddu", 9000],
+    ["Provision", 2000], ["Vegetables", 1500], ["Thaer seel", 3000], ["Poster", 2600],
+    ["Crane", 5000], ["Prasadha thattu", 3000], ["Towel", 15500], ["Bag", 6000],
+    ["Pathram", 2000], ["Thattu", 3900], ["Notice", 8000], ["Kungum manjal", 2500],
+    ["Thaali kayiru", 3500], ["Alangaram", 15000], ["Maalai", 80000], ["Vanambadi", 25000],
+    ["Pattrai", 0], ["Pavadai", 10000], ["Kumbam", 8000], ["Annadhanam", 15000],
+    ["Banner", 3300], ["Thandora", 1500], ["Crackers", 10000], ["sapadu kaasu", 6000],
+    ["poster past", 1200], ["Moolasthanam", 10000], ["VIP Bag", 8000], ["Others", 20000]
+];
+
+function filterTable() {
+    const query = document.getElementById("searchBar").value.toLowerCase();
+    document.querySelectorAll("#tableBody tr").forEach(row => {
+        const name = row.querySelector(".name").value.toLowerCase();
+        row.style.display = name.includes(query) ? "" : "none";
+    });
+}
+
+function addRow(name = "", est = 0, adv = 0, mode = "Cash") {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+        <td><input type="text" class="name" value="${name}" onblur="autoSync()"></td>
+        <td><input type="number" class="est" value="${est}" oninput="calcRow(this); autoSync()"></td>
+        <td><input type="number" class="adv" value="${adv}" oninput="calcRow(this); autoSync()"></td>
+        <td class="bal">0</td>
+        <td><select class="mode" onchange="calcRow(this); autoSync()">
+            <option value="Cash" ${mode==="Cash"?"selected":""}>Cash</option>
+            <option value="Bank" ${mode==="Bank"?"selected":""}>Bank</option>
+            <option value="Donor" ${mode==="Donor"?"selected":""}>Donor</option>
+        </select></td>
+        <td><button class="del-btn" onclick="this.parentElement.parentElement.remove(); updateSummary(); autoSync()">❌</button></td>`;
+    document.getElementById("tableBody").appendChild(tr);
+    calcRow(tr.querySelector(".est"));
+}
+
+function calcRow(el) {
+    const row = el.closest('tr');
+    const est = parseFloat(row.querySelector(".est").value) || 0;
+    const adv = parseFloat(row.querySelector(".adv").value) || 0;
+    const mode = row.querySelector(".mode").value;
+    const bal = (mode === "Donor") ? 0 : (est - adv);
+    row.querySelector(".bal").innerText = bal;
+    updateSummary();
+}
+
+function updateSummary() {
+    let totalEst = 0, totalPaid = 0, totalDonor = 0, totalBal = 0;
+    const manualInHand = parseFloat(document.getElementById("manualInHand").value) || 0;
+    document.querySelectorAll("#tableBody tr").forEach(row => {
+        const est = parseFloat(row.querySelector(".est").value) || 0;
+        const adv = parseFloat(row.querySelector(".adv").value) || 0;
+        const bal = parseFloat(row.querySelector(".bal").innerText) || 0;
+        const mode = row.querySelector(".mode").value;
+        totalEst += est;
+        totalBal += bal;
+        if (mode === "Donor") { totalDonor += est; } else { totalPaid += adv; }
+    });
+    const finalBal = totalBal - manualInHand;
+    document.getElementById("summaryPanel").innerHTML = 
+        `Est: ${totalEst.toLocaleString()} | Paid: ${totalPaid.toLocaleString()} | Donor: ${totalDonor.toLocaleString()} | In Hand: ${manualInHand.toLocaleString()} | Final Bal: ${finalBal.toLocaleString()}`;
+}
+
+async function autoSync() {
+    const data = { items: {}, settings: {} };
+    document.querySelectorAll("#tableBody tr").forEach(row => {
+        const name = row.querySelector(".name").value;
+        if(name) {
+            data.items[name] = { est: row.querySelector(".est").value, adv: row.querySelector(".adv").value, mode: row.querySelector(".mode").value };
+        }
+    });
+    data.settings.manualInHand = document.getElementById("manualInHand").value;
+    try {
+        await fetch(DB_URL, { method: "PUT", body: JSON.stringify(data), headers: {"Content-Type": "application/json"} });
+        document.getElementById("syncStatus").innerText = "✅ Synced";
+    } catch(e) { document.getElementById("syncStatus").innerText = "❌ Error"; }
+}
+
+async function loadData() {
+    const response = await fetch(DB_URL);
+    const data = await response.json();
+    if(data && data.items && Object.keys(data.items).length > 0) {
+        if(data.settings) document.getElementById("manualInHand").value = data.settings.manualInHand || 0;
+        Object.keys(data.items).forEach(k => addRow(k, data.items[k].est, data.items[k].adv, data.items[k].mode));
+    } else {
+        initialData.forEach(item => addRow(item[0], item[1]));
+        autoSync();
+    }
+    updateSummary();
+}
+loadData();
+</script>
+</body>
+</html>
